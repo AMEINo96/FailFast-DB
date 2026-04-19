@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Project, fetchProjects, submitFeedback, submitSuggestion } from "@/lib/api";
+import { useState, useEffect } from "react";
+import { Project, fetchProjectById, submitFeedback, submitSuggestion } from "@/lib/api";
 import { useAuth } from "./AuthContext";
 import { X, Star, Calendar, MessageSquare, Lightbulb, User as UserIcon, AlertCircle, Loader2 } from "lucide-react";
 
@@ -11,8 +11,10 @@ interface ProjectDetailModalProps {
   onRequireAuth: () => void;
 }
 
-export default function ProjectDetailModal({ project, onClose, onRequireAuth }: ProjectDetailModalProps) {
+export default function ProjectDetailModal({ project: placeholderProject, onClose, onRequireAuth }: ProjectDetailModalProps) {
   const { user } = useAuth();
+  const [project, setProject] = useState<Project>(placeholderProject);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"details" | "feedback" | "suggestions">("details");
   
   // Forms
@@ -22,6 +24,19 @@ export default function ProjectDetailModal({ project, onClose, onRequireAuth }: 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
 
+  const loadLatestDetails = async () => {
+    setLoading(true);
+    const detailedProject = await fetchProjectById(placeholderProject.id);
+    if (detailedProject) {
+      setProject(detailedProject);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadLatestDetails();
+  }, [placeholderProject.id]);
+
   const handleFeedbackSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) { onRequireAuth(); return; }
@@ -30,9 +45,17 @@ export default function ProjectDetailModal({ project, onClose, onRequireAuth }: 
     setIsSubmitting(true);
     setSuccessMsg("");
     try {
-      await submitFeedback({ project_id: project.id, user_id: user.user_id, rating, comment, created_at: new Date().toISOString() });
-      setSuccessMsg("Feedback submitted successfully!");
-      setComment("");
+      const success = await submitFeedback({ 
+        project_id: project.id, 
+        user_id: user.user_id, 
+        rating, 
+        comment 
+      });
+      if (success) {
+        setSuccessMsg("Feedback submitted successfully!");
+        setComment("");
+        await loadLatestDetails(); // Refresh to show new feedback
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -46,13 +69,28 @@ export default function ProjectDetailModal({ project, onClose, onRequireAuth }: 
     setIsSubmitting(true);
     setSuccessMsg("");
     try {
-      await submitSuggestion({ project_id: project.id, user_id: user.user_id, description: suggestionDesc, created_at: new Date().toISOString() });
-      setSuccessMsg("Suggestion submitted successfully!");
-      setSuggestionDesc("");
+      const success = await submitSuggestion({ 
+        project_id: project.id, 
+        user_id: user.user_id, 
+        description: suggestionDesc 
+      });
+      if (success) {
+        setSuccessMsg("Suggestion submitted successfully!");
+        setSuggestionDesc("");
+        await loadLatestDetails(); // Refresh to show new suggestion
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md">
+        <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">

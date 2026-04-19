@@ -78,42 +78,64 @@ export const FAILURE_TYPES = [
 // API points to the same domain on Vercel
 const API_BASE_URL = '/api';
 
-export async function fetchProjects(searchQuery: string = "", category: string = ""): Promise<any[]> {
+export async function fetchProjects(searchQuery: string = "", category: string = ""): Promise<Project[]> {
   try {
     const res = await fetch(`${API_BASE_URL}/explore`);
     if (!res.ok) throw new Error("Failed to fetch projects");
     
     let results = await res.json();
     
-    // The view `vw_project_failure_summary` gives us:
-    // project_id, title, category, status, total_failure_reasons, avg_feedback_rating, total_suggestions
-    // We map frontend props accordingly.
-    
+    // Mapping backend response to frontend Project interface
     results = results.map((p: any) => ({
       id: p.project_id.toString(),
       title: p.title,
       category: p.category,
       status: p.status,
       rating: parseFloat(p.avg_feedback_rating || 0),
-      // We don't have descriptions in the summary view, but we can put empty defaults or placeholders
-      description: "Description not provided in summary.",
-      tags: [],
+      description: p.description || "No description provided.",
+      tags: p.tags || [],
       failure_reasons: []
     }));
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      results = results.filter((p: any) => 
-        p.title.toLowerCase().includes(q)
+      results = results.filter((p: Project) => 
+        p.title.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q) ||
+        p.tags.some(t => t.toLowerCase().includes(q))
       );
     }
     if (category && category !== "All") {
-      results = results.filter((p: any) => p.category === category);
+      results = results.filter((p: Project) => p.category === category);
     }
     return results;
   } catch (error) {
-    console.error("Error fetching from API, falling back to empty:", error);
+    console.error("Error fetching from API:", error);
     return [];
+  }
+}
+
+export async function fetchProjectById(projectId: string): Promise<Project | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/project/${projectId}`);
+    if (!res.ok) throw new Error("Failed to fetch project details");
+    
+    const p = await res.json();
+    return {
+      id: p.project_id.toString(),
+      title: p.title,
+      category: p.category_name,
+      status: p.status,
+      rating: 0, // Will be calculated or handled by details
+      description: p.description,
+      tags: p.tags || [],
+      failure_reasons: p.failure_reasons || [],
+      feedback: p.feedback || [],
+      suggestions: p.suggestions || []
+    };
+  } catch (error) {
+    console.error("Error fetching project details:", error);
+    return null;
   }
 }
 
@@ -138,15 +160,17 @@ export async function shareProject(projectData: ShareProjectPayload, user_id?: s
         description: projectData.description,
         category_name: projectData.category,
         failure_type: projectData.reason_type,
-        reason_desc: projectData.reason_description
+        reason_desc: projectData.reason_description,
+        tags: projectData.tags // Now sending tags to backend
       })
     });
     
     if (!res.ok) throw new Error("API responded with an error");
+    const data = await res.json();
     
     return {
       success: true,
-      message: "Your project has been successfully logged into the database."
+      message: data.message || "Your project has been successfully logged into the database."
     };
   } catch (error) {
     console.error("Error submitting project:", error);
@@ -155,15 +179,35 @@ export async function shareProject(projectData: ShareProjectPayload, user_id?: s
 }
 
 export async function submitFeedback(feedback: Partial<Feedback>): Promise<boolean> {
-  await new Promise(resolve => setTimeout(resolve, 800));
-  console.log("Feedback saved locally:", feedback);
-  return true;
+  try {
+    const res = await fetch(`${API_BASE_URL}/feedback`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(feedback)
+    });
+    return res.ok;
+  } catch (error) {
+    console.error("Error submitting feedback:", error);
+    return false;
+  }
 }
 
 export async function submitSuggestion(suggestion: Partial<Suggestion>): Promise<boolean> {
-  await new Promise(resolve => setTimeout(resolve, 800));
-  console.log("Suggestion saved locally:", suggestion);
-  return true;
+  try {
+    const res = await fetch(`${API_BASE_URL}/suggestion`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(suggestion)
+    });
+    return res.ok;
+  } catch (error) {
+    console.error("Error submitting suggestion:", error);
+    return false;
+  }
 }
 
 export async function registerMockUser(name: string, email: string): Promise<User> {
