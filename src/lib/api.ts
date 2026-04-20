@@ -4,20 +4,13 @@ export interface User {
   email: string;
 }
 
-export interface Feedback {
+export interface Comment {
   feedback_id: string;
   project_id: string;
   user_id?: string;
+  user_name: string;
   rating: number;
   comment: string;
-  created_at: string;
-}
-
-export interface Suggestion {
-  suggestion_id: string;
-  project_id: string;
-  user_id?: string;
-  description: string;
   created_at: string;
 }
 
@@ -27,24 +20,16 @@ export interface FailureReason {
 }
 
 export interface Project {
-  id: string;  // mapped to project_id
+  id: string;
   title: string;
   category: string;
   description: string;
   status: string;
-  rating: number; // average derived from feedback
+  rating: number;
   tags: string[];
   failure_reasons?: FailureReason[];
-  feedback?: Feedback[];
-  suggestions?: Suggestion[];
+  comments?: Comment[];
   created_at?: string;
-}
-
-export interface IdeaPayload {
-  title: string;
-  category: string;
-  description: string;
-  tags: string[];
 }
 
 export interface ShareProjectPayload {
@@ -85,7 +70,6 @@ export async function fetchProjects(searchQuery: string = "", category: string =
     
     let results = await res.json();
     
-    // Mapping backend response to frontend Project interface
     results = results.map((p: any) => ({
       id: p.project_id.toString(),
       title: p.title,
@@ -126,26 +110,17 @@ export async function fetchProjectById(projectId: string): Promise<Project | nul
       title: p.title,
       category: p.category_name,
       status: p.status,
-      rating: 0, // Will be calculated or handled by details
+      rating: p.avg_rating || 0,
       description: p.description,
       tags: p.tags || [],
       failure_reasons: p.failure_reasons || [],
-      feedback: p.feedback || [],
-      suggestions: p.suggestions || []
+      comments: p.comments || [],
+      created_at: p.created_at
     };
   } catch (error) {
     console.error("Error fetching project details:", error);
     return null;
   }
-}
-
-export async function submitIdea(ideaData: IdeaPayload): Promise<{ success: boolean; message: string }> {
-  await new Promise(resolve => setTimeout(resolve, 1500));
-  console.log("Submitting test idea:", ideaData);
-  return {
-    success: true,
-    message: "Idea logged in the database! Here is how it compares..."
-  };
 }
 
 export async function shareProject(projectData: ShareProjectPayload, user_id?: string): Promise<{ success: boolean; message: string }> {
@@ -161,7 +136,7 @@ export async function shareProject(projectData: ShareProjectPayload, user_id?: s
         category_name: projectData.category,
         failure_type: projectData.reason_type,
         reason_desc: projectData.reason_description,
-        tags: projectData.tags // Now sending tags to backend
+        tags: projectData.tags
       })
     });
     
@@ -178,34 +153,23 @@ export async function shareProject(projectData: ShareProjectPayload, user_id?: s
   }
 }
 
-export async function submitFeedback(feedback: Partial<Feedback>): Promise<boolean> {
+export async function postComment(projectId: string, userId: string | undefined, rating: number, comment: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE_URL}/feedback`, {
+    const res = await fetch(`${API_BASE_URL}/comment`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(feedback)
+      body: JSON.stringify({
+        project_id: projectId,
+        user_id: userId || null,
+        rating,
+        comment
+      })
     });
     return res.ok;
   } catch (error) {
-    console.error("Error submitting feedback:", error);
-    return false;
-  }
-}
-
-export async function submitSuggestion(suggestion: Partial<Suggestion>): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/suggestion`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(suggestion)
-    });
-    return res.ok;
-  } catch (error) {
-    console.error("Error submitting suggestion:", error);
+    console.error("Error posting comment:", error);
     return false;
   }
 }

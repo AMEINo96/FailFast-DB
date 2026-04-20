@@ -4,6 +4,9 @@ import mysql.connector
 from mysql.connector import Error
 import os
 from dotenv import load_dotenv
+from datetime import date, datetime
+from decimal import Decimal
+import json
 
 # Load environmental variables from .env file
 load_dotenv()
@@ -11,6 +14,17 @@ load_dotenv()
 app = Flask(__name__)
 # Enable CORS for all routes so the Next.js frontend can communicate with it
 CORS(app) 
+
+# Custom JSON encoder to handle MySQL datetime and Decimal types
+class CustomJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super().default(obj)
+
+app.json_encoder = CustomJSONEncoder
 
 def get_db_connection():
     try:
@@ -26,6 +40,18 @@ def get_db_connection():
         print(f"Error connecting to MySQL Database: {e}")
         return None
 
+def serialize_row(row):
+    """Convert a dictionary row so all values are JSON-serializable."""
+    result = {}
+    for key, value in row.items():
+        if isinstance(value, (datetime, date)):
+            result[key] = value.isoformat()
+        elif isinstance(value, Decimal):
+            result[key] = float(value)
+        else:
+            result[key] = value
+    return result
+
 @app.route('/api/explore', methods=['GET'])
 def explore_projects():
     """Route 1: Explore Projects with Tags and Descriptions"""
@@ -35,7 +61,6 @@ def explore_projects():
     
     try:
         cursor = conn.cursor(dictionary=True)
-        # Custom SQL to fetch core data + tags via GROUP_CONCAT
         query = """
             SELECT 
                 p.project_id, 
@@ -55,7 +80,6 @@ def explore_projects():
         cursor.execute(query)
         projects = cursor.fetchall()
         
-        # Convert tags_string to an array
         for p in projects:
             p['tags'] = p['tags_string'].split(',') if p['tags_string'] else []
             p['avg_feedback_rating'] = float(p['avg_rating']) if p['avg_rating'] else 0
@@ -72,7 +96,7 @@ def explore_projects():
 
 @app.route('/api/project/<int:project_id>', methods=['GET'])
 def get_project_details(project_id):
-    """New Route: Fetch full details for a single project"""
+    """Fetch full details for a single project including comments"""
     conn = get_db_connection()
     if conn is None:
         return jsonify({"error": "Database connection failed"}), 500
@@ -80,9 +104,12 @@ def get_project_details(project_id):
     try:
         cursor = conn.cursor(dictionary=True)
         
-        # 1. Fetch main project info
+        # 1. Fetch main project info (explicit columns to avoid datetime serialization issues)
         cursor.execute("""
-            SELECT p.*, c.category_name 
+            SELECT 
+                p.project_id, p.title, p.description, p.status, 
+                c.category_name,
+                DATE_FORMAT(p.created_at, '%%Y-%%m-%%dT%%H:%%i:%%s') as created_at
             FROM Projects p 
             LEFT JOIN Categories c ON p.category_id = c.category_id 
             WHERE p.project_id = %s
@@ -110,13 +137,27 @@ def get_project_details(project_id):
         """, (project_id,))
         project['failure_reasons'] = cursor.fetchall()
 
-        # 4. Fetch feedback
-        cursor.execute("SELECT * FROM Feedback WHERE project_id = %s ORDER BY created_at DESC", (project_id,))
-        project['feedback'] = cursor.fetchall()
+        # 4. Fetch all comments (feedback with user names)
+        cursor.execute("""
+            SELECT 
+                f.feedback_id, f.project_id, f.user_id, 
+                f.rating, f.comment,
+                DATE_FORMAT(f.created_at, '%%Y-%%m-%%dT%%H:%%i:%%s') as created_at,
+                COALESCE(u.name, 'Anonymous') as user_name
+            FROM Feedback f
+            LEFT JOIN Users u ON f.user_id = u.user_id
+            WHERE f.project_id = %s 
+            ORDER BY f.created_at DESC
+        """, (project_id,))
+        project['comments'] = cursor.fetchall()
 
-        # 5. Fetch suggestions
-        cursor.execute("SELECT * FROM Suggestions WHERE project_id = %s ORDER BY created_at DESC", (project_id,))
-        project['suggestions'] = cursor.fetchall()
+        # 5. Calculate average rating
+        if project['comments']:
+            total = sum(c['rating'] for c in project['comments'] if c['rating'])
+            count = sum(1 for c in project['comments'] if c['rating'])
+            project['avg_rating'] = round(total / count, 1) if count > 0 else 0
+        else:
+            project['avg_rating'] = 0
 
         return jsonify(project), 200
     except Error as e:
@@ -136,7 +177,7 @@ def submit_idea():
     category_name = data.get('category_name')
     failure_type = data.get('failure_type')
     reason_desc = data.get('reason_desc')
-    tags = data.get('tags', []) # New: receiving tags
+    tags = data.get('tags', [])
     
     if not all([title, description, category_name, failure_type, reason_desc]):
         return jsonify({"error": "Missing required fields"}), 400
@@ -165,18 +206,15 @@ def submit_idea():
             tag_name = tag_name.strip().lower()
             if not tag_name: continue
             
-            # Check if tag exists
             cursor.execute("SELECT tag_id FROM Tags WHERE tag_name = %s", (tag_name,))
             tag_row = cursor.fetchone()
             
             if tag_row:
                 tag_id = tag_row[0]
             else:
-                # Insert new tag
                 cursor.execute("INSERT INTO Tags (tag_name) VALUES (%s)", (tag_name,))
                 tag_id = cursor.lastrowid
             
-            # Link to project
             cursor.execute("INSERT IGNORE INTO Project_Tags (project_id, tag_id) VALUES (%s, %s)", (new_project_id, tag_id))
         
         conn.commit()
@@ -193,54 +231,32 @@ def submit_idea():
             cursor.close()
             conn.close()
 
-@app.route('/api/feedback', methods=['POST'])
-def submit_feedback():
-    """New Route: Save Feedback"""
+@app.route('/api/comment', methods=['POST'])
+def submit_comment():
+    """Save a comment with rating on a project"""
     data = request.get_json()
     project_id = data.get('project_id')
     user_id = data.get('user_id')
     rating = data.get('rating')
     comment = data.get('comment')
 
-    if not all([project_id, rating, comment]):
+    if not all([project_id, comment]):
         return jsonify({"error": "Missing required fields"}), 400
 
+    if not rating or int(rating) < 1 or int(rating) > 5:
+        rating = None
+
     conn = get_db_connection()
+    if conn is None:
+        return jsonify({"error": "Database connection failed"}), 500
     try:
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO Feedback (project_id, user_id, rating, comment) VALUES (%s, %s, %s, %s)",
-            (project_id, user_id, rating, comment)
+            (project_id, user_id if user_id else None, rating, comment)
         )
         conn.commit()
-        return jsonify({"success": True}), 201
-    except Error as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if conn.is_connected():
-            cursor.close()
-            conn.close()
-
-@app.route('/api/suggestion', methods=['POST'])
-def submit_suggestion():
-    """New Route: Save Suggestion"""
-    data = request.get_json()
-    project_id = data.get('project_id')
-    user_id = data.get('user_id')
-    description = data.get('description')
-
-    if not all([project_id, description]):
-        return jsonify({"error": "Missing required fields"}), 400
-
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO Suggestions (project_id, user_id, description) VALUES (%s, %s, %s)",
-            (project_id, user_id, description)
-        )
-        conn.commit()
-        return jsonify({"success": True}), 201
+        return jsonify({"success": True, "message": "Comment posted!"}), 201
     except Error as e:
         return jsonify({"error": str(e)}), 500
     finally:
@@ -264,7 +280,6 @@ def signup():
 
     try:
         cursor = conn.cursor()
-        # Insert with default role_id = 4 (Contributor) per instruction
         insert_query = "INSERT INTO Users (role_id, name, email) VALUES (4, %s, %s)"
         cursor.execute(insert_query, (name, email))
         conn.commit()
