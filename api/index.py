@@ -104,17 +104,17 @@ def get_project_details(project_id):
     try:
         cursor = conn.cursor(dictionary=True)
         
-        # 1. Fetch main project info (explicit columns to avoid datetime serialization issues)
-        cursor.execute("""
-            SELECT 
-                p.project_id, p.title, p.description, p.status, 
-                c.category_name,
-                DATE_FORMAT(p.created_at, '%%Y-%%m-%%dT%%H:%%i:%%s') as created_at
-            FROM Projects p 
-            LEFT JOIN Categories c ON p.category_id = c.category_id 
-            WHERE p.project_id = %s
-        """, (project_id,))
-        project = cursor.fetchone()
+        # 1. Fetch main project info
+        cursor.execute(
+            "SELECT p.project_id, p.title, p.description, p.status, "
+            "c.category_name, p.created_at "
+            "FROM Projects p "
+            "LEFT JOIN Categories c ON p.category_id = c.category_id "
+            "WHERE p.project_id = %s",
+            (project_id,)
+        )
+        raw_project = cursor.fetchone()
+        project = serialize_row(raw_project) if raw_project else None
         
         if not project:
             return jsonify({"error": "Project not found"}), 404
@@ -128,14 +128,16 @@ def get_project_details(project_id):
         """, (project_id,))
         project['tags'] = [row['tag_name'] for row in cursor.fetchall()]
 
-        # 3. Fetch failure reasons (use SELECT * to avoid column name mismatches)
+        # 3. Fetch failure reasons
         try:
-            cursor.execute("""
-                SELECT fr.*, ft.*
-                FROM Failure_Reasons fr
-                JOIN Failure_Types ft ON fr.type_id = ft.type_id
-                WHERE fr.project_id = %s
-            """, (project_id,))
+            cursor.execute(
+                "SELECT fr.reason_id, fr.project_id, fr.type_id, "
+                "ft.type_name as reason_type "
+                "FROM Failure_Reasons fr "
+                "JOIN Failure_Types ft ON fr.type_id = ft.type_id "
+                "WHERE fr.project_id = %s",
+                (project_id,)
+            )
             raw_reasons = cursor.fetchall()
             project['failure_reasons'] = [serialize_row(r) for r in raw_reasons]
         except Exception:
@@ -143,15 +145,15 @@ def get_project_details(project_id):
 
         # 4. Fetch all comments (feedback with user names)
         try:
-            cursor.execute("""
-                SELECT f.*, 
-                    DATE_FORMAT(f.created_at, '%%Y-%%m-%%dT%%H:%%i:%%s') as formatted_date,
-                    COALESCE(u.name, 'Anonymous') as user_name
-                FROM Feedback f
-                LEFT JOIN Users u ON f.user_id = u.user_id
-                WHERE f.project_id = %s 
-                ORDER BY f.created_at DESC
-            """, (project_id,))
+            cursor.execute(
+                "SELECT f.feedback_id, f.project_id, f.user_id, f.rating, f.comment, "
+                "f.created_at, COALESCE(u.name, 'Anonymous') as user_name "
+                "FROM Feedback f "
+                "LEFT JOIN Users u ON f.user_id = u.user_id "
+                "WHERE f.project_id = %s "
+                "ORDER BY f.created_at DESC",
+                (project_id,)
+            )
             raw_comments = cursor.fetchall()
             project['comments'] = [serialize_row(c) for c in raw_comments]
         except Exception:
@@ -255,10 +257,18 @@ def submit_comment():
     if conn is None:
         return jsonify({"error": "Database connection failed"}), 500
     try:
+        # Convert user_id to int if possible, otherwise set to None
+        safe_user_id = None
+        if user_id:
+            try:
+                safe_user_id = int(user_id)
+            except (ValueError, TypeError):
+                safe_user_id = None
+        
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO Feedback (project_id, user_id, rating, comment) VALUES (%s, %s, %s, %s)",
-            (project_id, user_id if user_id else None, rating, comment)
+            (project_id, safe_user_id, rating, comment)
         )
         conn.commit()
         return jsonify({"success": True, "message": "Comment posted!"}), 201
