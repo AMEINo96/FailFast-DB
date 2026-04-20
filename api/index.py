@@ -257,13 +257,26 @@ def submit_comment():
     if conn is None:
         return jsonify({"error": "Database connection failed"}), 500
     try:
-        # Convert user_id to int if possible, otherwise set to None
+        # Convert user_id to int if possible
         safe_user_id = None
         if user_id:
             try:
                 safe_user_id = int(user_id)
             except (ValueError, TypeError):
                 safe_user_id = None
+        
+        # If no valid user_id, find or create a guest user
+        if safe_user_id is None:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT user_id FROM Users WHERE name = 'Guest'")
+            guest = cursor.fetchone()
+            if guest:
+                safe_user_id = guest['user_id']
+            else:
+                cursor.execute("INSERT INTO Users (role_id, name, email) VALUES (4, 'Guest', 'guest@failfast.app')")
+                conn.commit()
+                safe_user_id = cursor.lastrowid
+            cursor.close()
         
         cursor = conn.cursor()
         cursor.execute(
