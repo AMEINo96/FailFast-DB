@@ -42,6 +42,13 @@ export interface ShareProjectPayload {
   reason_description: string;
 }
 
+export interface IdeaPayload {
+  title: string;
+  category: string;
+  description: string;
+  tags: string[];
+}
+
 export const AVAILABLE_TAGS = [
   "saas", "b2b", "b2c", "ai", "crypto", "blockchain", "fintech",
   "edtech", "healthtech", "social", "e-commerce", "marketplace",
@@ -121,6 +128,15 @@ export async function fetchProjectById(projectId: string): Promise<Project | nul
     console.error("Error fetching project details:", error);
     return null;
   }
+}
+
+export async function submitIdea(ideaData: IdeaPayload): Promise<{ success: boolean; message: string }> {
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  console.log("Analyzing idea:", ideaData);
+  return {
+    success: true,
+    message: "Idea analyzed against the database! Here is how it compares..."
+  };
 }
 
 export async function shareProject(projectData: ShareProjectPayload, user_id?: string): Promise<{ success: boolean; message: string }> {

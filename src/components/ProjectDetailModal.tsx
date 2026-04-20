@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Project, Comment, fetchProjectById, postComment } from "@/lib/api";
+import { Project, fetchProjectById, postComment } from "@/lib/api";
 import { useAuth } from "./AuthContext";
 import { X, Star, MessageSquare, AlertCircle, Loader2, Send, User as UserIcon } from "lucide-react";
 
