@@ -128,34 +128,39 @@ def get_project_details(project_id):
         """, (project_id,))
         project['tags'] = [row['tag_name'] for row in cursor.fetchall()]
 
-        # 3. Fetch failure reasons
-        cursor.execute("""
-            SELECT fr.reason_desc as description, ft.type_name as reason_type
-            FROM Failure_Reasons fr
-            JOIN Failure_Types ft ON fr.type_id = ft.type_id
-            WHERE fr.project_id = %s
-        """, (project_id,))
-        project['failure_reasons'] = cursor.fetchall()
+        # 3. Fetch failure reasons (use SELECT * to avoid column name mismatches)
+        try:
+            cursor.execute("""
+                SELECT fr.*, ft.*
+                FROM Failure_Reasons fr
+                JOIN Failure_Types ft ON fr.type_id = ft.type_id
+                WHERE fr.project_id = %s
+            """, (project_id,))
+            raw_reasons = cursor.fetchall()
+            project['failure_reasons'] = [serialize_row(r) for r in raw_reasons]
+        except Exception:
+            project['failure_reasons'] = []
 
         # 4. Fetch all comments (feedback with user names)
-        cursor.execute("""
-            SELECT 
-                f.feedback_id, f.project_id, f.user_id, 
-                f.rating, f.comment,
-                DATE_FORMAT(f.created_at, '%%Y-%%m-%%dT%%H:%%i:%%s') as created_at,
-                COALESCE(u.name, 'Anonymous') as user_name
-            FROM Feedback f
-            LEFT JOIN Users u ON f.user_id = u.user_id
-            WHERE f.project_id = %s 
-            ORDER BY f.created_at DESC
-        """, (project_id,))
-        project['comments'] = cursor.fetchall()
+        try:
+            cursor.execute("""
+                SELECT f.*, 
+                    DATE_FORMAT(f.created_at, '%%Y-%%m-%%dT%%H:%%i:%%s') as formatted_date,
+                    COALESCE(u.name, 'Anonymous') as user_name
+                FROM Feedback f
+                LEFT JOIN Users u ON f.user_id = u.user_id
+                WHERE f.project_id = %s 
+                ORDER BY f.created_at DESC
+            """, (project_id,))
+            raw_comments = cursor.fetchall()
+            project['comments'] = [serialize_row(c) for c in raw_comments]
+        except Exception:
+            project['comments'] = []
 
         # 5. Calculate average rating
         if project['comments']:
-            total = sum(c['rating'] for c in project['comments'] if c['rating'])
-            count = sum(1 for c in project['comments'] if c['rating'])
-            project['avg_rating'] = round(total / count, 1) if count > 0 else 0
+            ratings = [c.get('rating', 0) for c in project['comments'] if c.get('rating')]
+            project['avg_rating'] = round(sum(ratings) / len(ratings), 1) if ratings else 0
         else:
             project['avg_rating'] = 0
 

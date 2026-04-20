@@ -227,8 +227,8 @@ export default function ProjectDetailModal({ project: placeholderProject, onClos
             {/* Comments List */}
             <div className="space-y-4">
               {project.comments && project.comments.length > 0 ? (
-                project.comments.map((c: Comment) => (
-                  <div key={c.feedback_id} className="border border-slate-800 rounded-xl p-4 bg-slate-900/50 hover:bg-slate-800/30 transition-colors">
+                project.comments.map((c: any, index: number) => (
+                  <div key={c.feedback_id || c.id || index} className="border border-slate-800 rounded-xl p-4 bg-slate-900/50 hover:bg-slate-800/30 transition-colors">
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
@@ -236,7 +236,7 @@ export default function ProjectDetailModal({ project: placeholderProject, onClos
                         </div>
                         <div>
                           <span className="text-sm font-medium text-slate-200">{c.user_name || 'Anonymous'}</span>
-                          <span className="text-xs text-slate-500 ml-2">{formatDate(c.created_at)}</span>
+                          <span className="text-xs text-slate-500 ml-2">{formatDate(c.formatted_date || c.created_at || '')}</span>
                         </div>
                       </div>
                       {c.rating && (
@@ -249,7 +249,7 @@ export default function ProjectDetailModal({ project: placeholderProject, onClos
                         </div>
                       )}
                     </div>
-                    <p className="text-slate-300 text-sm leading-relaxed pl-10">{c.comment}</p>
+                    <p className="text-slate-300 text-sm leading-relaxed pl-10">{c.comment || c.description || c.text || ''}</p>
                   </div>
                 ))
               ) : (
