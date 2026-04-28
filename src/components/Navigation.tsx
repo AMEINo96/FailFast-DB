@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, User as UserIcon } from "lucide-react";
+import { Rocket, User as UserIcon } from "lucide-react";
 import { useAuth } from "./AuthContext";
 
 interface NavigationProps {
@@ -19,10 +19,10 @@ export default function Navigation({ activeTab, onTabChange, onOpenSignUp }: Nav
           
           {/* Logo */}
           <div className="flex-shrink-0 flex items-center gap-2 cursor-pointer w-[150px]" onClick={() => onTabChange("explore")}>
-            <div className="bg-indigo-500/20 p-2 rounded-lg">
-              <Activity className="h-6 w-6 text-indigo-400" />
+            <div className="bg-gradient-to-br from-indigo-500/20 to-purple-500/20 p-2 rounded-lg">
+              <Rocket className="h-6 w-6 text-indigo-400" />
             </div>
-            <span className="font-bold text-xl tracking-tight text-slate-100 hidden sm:block">FailFast DB</span>
+            <span className="font-bold text-xl tracking-tight text-slate-100 hidden sm:block">LaunchPad</span>
           </div>
 
           {/* Center Tabs */}
@@ -34,7 +34,7 @@ export default function Navigation({ activeTab, onTabChange, onOpenSignUp }: Nav
                   activeTab === "explore" ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:text-slate-200 hover:bg-slate-700/50"
                 }`}
               >
-                Explore Community
+                Community
               </button>
               <button
                 onClick={() => onTabChange("rate")}
@@ -42,7 +42,7 @@ export default function Navigation({ activeTab, onTabChange, onOpenSignUp }: Nav
                   activeTab === "rate" ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:text-slate-200 hover:bg-slate-700/50"
                 }`}
               >
-                Rate Your Idea
+                Analyze Idea
               </button>
               <button
                 onClick={() => onTabChange("share")}
@@ -50,7 +50,7 @@ export default function Navigation({ activeTab, onTabChange, onOpenSignUp }: Nav
                   activeTab === "share" ? "bg-indigo-600 text-white shadow-sm hover:bg-indigo-500" : "text-slate-400 hover:text-slate-200 hover:bg-slate-700/50"
                 }`}
               >
-                Share Your Idea
+                Share Project
               </button>
             </div>
           </div>
@@ -88,7 +88,7 @@ export default function Navigation({ activeTab, onTabChange, onOpenSignUp }: Nav
                 activeTab === "explore" ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              Explore
+              Community
             </button>
             <button
               onClick={() => onTabChange("rate")}
@@ -96,7 +96,7 @@ export default function Navigation({ activeTab, onTabChange, onOpenSignUp }: Nav
                 activeTab === "rate" ? "bg-slate-700 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              Rate
+              Analyze
             </button>
             <button
               onClick={() => onTabChange("share")}
@@ -104,7 +104,7 @@ export default function Navigation({ activeTab, onTabChange, onOpenSignUp }: Nav
                 activeTab === "share" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              Share Idea
+              Share
             </button>
           </div>
         </div>

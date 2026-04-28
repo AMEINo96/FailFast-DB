@@ -49,6 +49,31 @@ export interface IdeaPayload {
   tags: string[];
 }
 
+export interface SimilarProject {
+  project_id: number;
+  title: string;
+  description: string;
+  status: string;
+  category: string;
+  avg_rating: number;
+  tags: string[];
+}
+
+export interface AnalysisResult {
+  similar_projects: SimilarProject[];
+  analysis: {
+    total_similar: number;
+    failed_count: number;
+    success_count: number;
+    active_count: number;
+    success_rate: number;
+    avg_community_rating: number;
+    prediction_score: number;
+    risk_level: 'Low' | 'Medium' | 'High';
+    insights: string[];
+  };
+}
+
 export const AVAILABLE_TAGS = [
   "saas", "b2b", "b2c", "ai", "crypto", "blockchain", "fintech",
   "edtech", "healthtech", "social", "e-commerce", "marketplace",
@@ -130,13 +155,34 @@ export async function fetchProjectById(projectId: string): Promise<Project | nul
   }
 }
 
+export async function analyzeIdea(ideaData: IdeaPayload): Promise<AnalysisResult> {
+  const res = await fetch(`${API_BASE_URL}/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: ideaData.title,
+      description: ideaData.description,
+      category: ideaData.category,
+      tags: ideaData.tags
+    })
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Analysis failed' }));
+    throw new Error(err.error || 'Analysis failed');
+  }
+
+  return await res.json();
+}
+
+// Keep backward compat — submitIdea now calls analyzeIdea
 export async function submitIdea(ideaData: IdeaPayload): Promise<{ success: boolean; message: string }> {
-  await new Promise(resolve => setTimeout(resolve, 1500));
-  console.log("Analyzing idea:", ideaData);
-  return {
-    success: true,
-    message: "Idea analyzed against the database! Here is how it compares..."
-  };
+  try {
+    await analyzeIdea(ideaData);
+    return { success: true, message: "Analysis complete!" };
+  } catch {
+    return { success: false, message: "Analysis failed." };
+  }
 }
 
 export async function shareProject(projectData: ShareProjectPayload, user_id?: string): Promise<{ success: boolean; message: string }> {

@@ -6,14 +6,15 @@ import { useAuth } from "./AuthContext";
 import { X, Star, MessageSquare, AlertCircle, Loader2, Send, User as UserIcon } from "lucide-react";
 
 interface ProjectDetailModalProps {
-  project: Project;
+  project?: Project;
+  projectId?: string;
   onClose: () => void;
-  onRequireAuth: () => void;
+  onRequireAuth?: () => void;
 }
 
-export default function ProjectDetailModal({ project: placeholderProject, onClose, onRequireAuth }: ProjectDetailModalProps) {
+export default function ProjectDetailModal({ project: placeholderProject, projectId, onClose, onRequireAuth }: ProjectDetailModalProps) {
   const { user } = useAuth();
-  const [project, setProject] = useState<Project>(placeholderProject);
+  const [project, setProject] = useState<Project | null>(placeholderProject || null);
   const [loading, setLoading] = useState(true);
   
   // Comment form
@@ -23,9 +24,12 @@ export default function ProjectDetailModal({ project: placeholderProject, onClos
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  const resolvedId = projectId || placeholderProject?.id;
+
   const loadLatestDetails = async () => {
+    if (!resolvedId) return;
     setLoading(true);
-    const detailedProject = await fetchProjectById(placeholderProject.id);
+    const detailedProject = await fetchProjectById(resolvedId);
     if (detailedProject) {
       setProject(detailedProject);
     }
@@ -34,13 +38,14 @@ export default function ProjectDetailModal({ project: placeholderProject, onClos
 
   useEffect(() => {
     loadLatestDetails();
-  }, [placeholderProject.id]);
+  }, [resolvedId]);
 
   const handleCommentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) { onRequireAuth(); return; }
+    if (!user) { onRequireAuth?.(); return; }
     if (!commentText.trim()) { setErrorMsg("Please write a comment."); return; }
     if (rating === 0) { setErrorMsg("Please select a star rating."); return; }
+    if (!project) return;
 
     setIsSubmitting(true);
     setErrorMsg("");
@@ -69,9 +74,9 @@ export default function ProjectDetailModal({ project: placeholderProject, onClos
     }
   };
 
-  if (loading) {
+  if (loading || !project) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md" onClick={onClose}>
         <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
       </div>
     );

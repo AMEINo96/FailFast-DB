@@ -325,5 +325,179 @@ def signup():
             cursor.close()
             conn.close()
 
+@app.route('/api/analyze', methods=['POST'])
+def analyze_idea():
+    """Analyze an idea against the database — find similar projects and predict success."""
+    data = request.get_json()
+    title = data.get('title', '')
+    description = data.get('description', '')
+    category = data.get('category', '')
+    tags = data.get('tags', [])
+
+    if not title or not description:
+        return jsonify({"error": "Title and description are required"}), 400
+
+    conn = get_db_connection()
+    if conn is None:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    try:
+        cursor = conn.cursor(dictionary=True)
+
+        # --- 1. Find similar projects ---
+        # Build a set of conditions for similarity
+        similar_ids = set()
+
+        # 1a. Category match
+        if category:
+            cursor.execute(
+                "SELECT p.project_id FROM Projects p "
+                "LEFT JOIN Categories c ON p.category_id = c.category_id "
+                "WHERE c.category_name = %s",
+                (category,)
+            )
+            for row in cursor.fetchall():
+                similar_ids.add(row['project_id'])
+
+        # 1b. Tag overlap — projects sharing at least one tag
+        if tags:
+            placeholders = ','.join(['%s'] * len(tags))
+            cursor.execute(
+                "SELECT DISTINCT pt.project_id FROM Project_Tags pt "
+                "JOIN Tags t ON pt.tag_id = t.tag_id "
+                "WHERE LOWER(t.tag_name) IN (" + placeholders + ")",
+                tuple(t.strip().lower() for t in tags)
+            )
+            for row in cursor.fetchall():
+                similar_ids.add(row['project_id'])
+
+        # 1c. Keyword match on title/description
+        keywords = [w for w in title.lower().split() if len(w) > 3]
+        for kw in keywords[:5]:  # Limit to 5 keywords
+            cursor.execute(
+                "SELECT project_id FROM Projects "
+                "WHERE LOWER(title) LIKE %s OR LOWER(description) LIKE %s",
+                (f'%{kw}%', f'%{kw}%')
+            )
+            for row in cursor.fetchall():
+                similar_ids.add(row['project_id'])
+
+        # --- 2. Fetch full details for similar projects ---
+        similar_projects = []
+        if similar_ids:
+            id_list = ','.join(str(pid) for pid in similar_ids)
+            cursor.execute(
+                "SELECT p.project_id, p.title, p.description, p.status, "
+                "c.category_name as category, "
+                "(SELECT AVG(f.rating) FROM Feedback f WHERE f.project_id = p.project_id) as avg_rating, "
+                "(SELECT GROUP_CONCAT(t.tag_name) FROM Project_Tags pt "
+                "JOIN Tags t ON pt.tag_id = t.tag_id WHERE pt.project_id = p.project_id) as tags_str "
+                "FROM Projects p "
+                "LEFT JOIN Categories c ON p.category_id = c.category_id "
+                "WHERE p.project_id IN (" + id_list + ") "
+                "ORDER BY p.created_at DESC LIMIT 20"
+            )
+            for row in cursor.fetchall():
+                similar_projects.append({
+                    'project_id': row['project_id'],
+                    'title': row['title'],
+                    'description': row['description'] or '',
+                    'status': row['status'] or 'Unknown',
+                    'category': row['category'] or '',
+                    'avg_rating': round(float(row['avg_rating']), 1) if row['avg_rating'] else 0,
+                    'tags': row['tags_str'].split(',') if row['tags_str'] else []
+                })
+
+        # --- 3. Compute prediction score ---
+        total = len(similar_projects)
+        failed = sum(1 for p in similar_projects if p['status'] == 'Failed')
+        active = sum(1 for p in similar_projects if p['status'] == 'Active')
+        success = sum(1 for p in similar_projects if p['status'] in ('Successful', 'Success', 'Completed'))
+        other = total - failed - active - success
+
+        # Calculate average community rating across similar projects
+        rated = [p['avg_rating'] for p in similar_projects if p['avg_rating'] > 0]
+        avg_community_rating = round(sum(rated) / len(rated), 1) if rated else 0
+
+        # Prediction logic
+        if total == 0:
+            prediction_score = 65  # No data → neutral-optimistic
+            risk_level = "Low"
+        else:
+            # Base: success rate
+            success_rate = ((success + active * 0.5) / total) * 100
+            failure_rate = (failed / total) * 100
+
+            # Score: start at 50, adjust based on data
+            prediction_score = 50
+            prediction_score += (success_rate * 0.3)   # Boost for successes
+            prediction_score -= (failure_rate * 0.25)   # Penalize for failures
+            prediction_score += (avg_community_rating - 2.5) * 5  # Rating modifier
+
+            # Clamp between 5 and 95
+            prediction_score = max(5, min(95, round(prediction_score)))
+
+            if prediction_score >= 65:
+                risk_level = "Low"
+            elif prediction_score >= 40:
+                risk_level = "Medium"
+            else:
+                risk_level = "High"
+
+        # --- 4. Generate insights ---
+        insights = []
+        if total > 0:
+            insights.append(f"Found {total} similar project{'s' if total != 1 else ''} in the database.")
+            if failed > 0:
+                insights.append(f"{failed} out of {total} similar projects failed ({round(failed/total*100)}%).")
+            if success > 0:
+                insights.append(f"{success} similar project{'s' if success != 1 else ''} achieved success.")
+            if active > 0:
+                insights.append(f"{active} similar project{'s' if active != 1 else ''} {'are' if active != 1 else 'is'} still active.")
+            if avg_community_rating > 0:
+                insights.append(f"Average community rating for similar ideas: {avg_community_rating}/5.")
+        else:
+            insights.append("No similar projects found — this could be a fresh market opportunity!")
+            insights.append("With no prior data, we estimate a moderate success chance.")
+
+        # --- 5. Get common failure types ---
+        if similar_ids:
+            try:
+                cursor.execute(
+                    "SELECT ft.type_name, COUNT(*) as cnt "
+                    "FROM Failure_Reasons fr "
+                    "JOIN Failure_Types ft ON fr.type_id = ft.type_id "
+                    "WHERE fr.project_id IN (" + id_list + ") "
+                    "GROUP BY ft.type_name ORDER BY cnt DESC LIMIT 3"
+                )
+                failure_types = cursor.fetchall()
+                if failure_types:
+                    top = failure_types[0]
+                    insights.append(f"Most common failure type: {top['type_name']} ({top['cnt']} occurrences).")
+            except Exception:
+                pass
+
+        return jsonify({
+            "similar_projects": similar_projects,
+            "analysis": {
+                "total_similar": total,
+                "failed_count": failed,
+                "success_count": success,
+                "active_count": active,
+                "success_rate": round(((success + active * 0.5) / total) * 100) if total > 0 else 0,
+                "avg_community_rating": avg_community_rating,
+                "prediction_score": prediction_score,
+                "risk_level": risk_level,
+                "insights": insights
+            }
+        }), 200
+
+    except Error as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn.is_connected():
+            cursor.close()
+            conn.close()
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

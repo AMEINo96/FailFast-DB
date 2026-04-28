@@ -7,10 +7,12 @@ import RateIdeaForm from "@/components/RateIdeaForm";
 import ShareIdeaForm from "@/components/ShareIdeaForm";
 import { AuthProvider } from "@/components/AuthContext";
 import SignUpModal from "@/components/SignUpModal";
+import ProjectDetailModal from "@/components/ProjectDetailModal";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<"explore" | "rate" | "share">("explore");
   const [showSignUp, setShowSignUp] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   return (
     <AuthProvider>
@@ -30,11 +32,23 @@ export default function Home() {
         
         <main className="flex-1 w-full relative z-10">
           {activeTab === "explore" && <ExploreView onRequireAuth={() => setShowSignUp(true)} />}
-          {activeTab === "rate" && <RateIdeaForm />}
+          {activeTab === "rate" && (
+            <RateIdeaForm 
+              onProjectClick={(projectId) => setSelectedProjectId(projectId)} 
+            />
+          )}
           {activeTab === "share" && <ShareIdeaForm onRequireAuth={() => setShowSignUp(true)} />}
         </main>
 
         {showSignUp && <SignUpModal onClose={() => setShowSignUp(false)} />}
+
+        {/* Detail modal — opened from Analyze tab's similar projects OR from ExploreView */}
+        {selectedProjectId && (
+          <ProjectDetailModal
+            projectId={selectedProjectId}
+            onClose={() => setSelectedProjectId(null)}
+          />
+        )}
       </div>
     </AuthProvider>
   );
